@@ -1,9 +1,20 @@
-name: ml-pipeline-env
+name: yolov8-env
+channels:
+  - defaults
 dependencies:
-  - python=3.10
-  - scikit-learn
-  - pandas
+  - python=3.8
   - pip
   - pip:
-      - azureml-defaults 
+      - azureml-core
+      - azureml-pipeline-core
+      - azureml-pipeline-steps
+      - azureml-mlflow
+      - azureml-dataprep[fuse,pandas]
+      - ultralytics
+      - mlflow
+      - pyyaml
+      - pandas
+      - azureml-defaults
+      - tqdm
+      - glob
 image: mcr.microsoft.com/azureml/openmpi4.1.0-ubuntu20.04:latest

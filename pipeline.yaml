@@ -1,45 +1,62 @@
 $schema: https://azuremlschemas.azureedge.net/latest/pipelineJob.schema.json
 type: pipeline
-description: 학습-평가-재배포 3단계 파이프라인
+description: Green-hat AI Model Retrain Pipeline
 
 jobs:
+  coco2yolo:
+    type: command
+    code: .
+    command: >-
+      python coco2yolo.py --coco-json-folder ${{inputs.coco_json_folder}} --image-folder ${{inputs.image_folder}} --output-folder ${{outputs.yolo_dataset}}
+    environment: azureml:yolov8-env@latest
+    compute: azureml:greenhat-ai-cluster
+    inputs:
+      coco_json_folder:
+        type: uri_folder
+        path: azureml:greenhat-coco-annotation@latest
+      image_folder:
+        type: uri_folder
+        path: azureml:greenhat-raw-images@latest
+    outputs:
+      yolo_dataset:
+        type: uri_folder
+        mode: rw_mount
+
   train:
     type: command
     code: .
     command: >-
       python train.py --data-folder ${{inputs.data}} --output-dir ${{outputs.model_output}}
-    environment: azureml:ml-pipeline-env@latest
+    environment: azureml:yolov8-env@latest
     compute: azureml:greenhat-ai-cluster
     inputs:
-      data:
-        type: uri_folder
-        path: azureml:labeling-data@latest
+      data: ${{parent.jobs.coco2yolo.outputs.yolo_dataset}}
     outputs:
       model_output:
         type: uri_folder
         mode: rw_mount
 
-  eval:
-    type: command
-    code: .
-    command: >-
-      python eval.py --model-folder ${{inputs.model_folder}} --output-dir ${{outputs.eval_output}}
-    environment: azureml:ml-pipeline-env@latest
-    compute: azureml:greenhat-ai-cluster
-    inputs:
-      model_folder: ${{parent.jobs.train.outputs.model_output}}
-    outputs:
-      eval_output:
-        type: uri_folder
-        mode: rw_mount
+  # Model_Eval:
+  #   type: command
+  #   code: .
+  #   command: >-
+  #     python eval.py --model-folder ${{inputs.model_folder}} --output-dir ${{outputs.eval_output}}
+  #   environment: azureml:ml-pipeline-env@latest
+  #   compute: azureml:greenhat-ai-cluster
+  #   inputs:
+  #     model_folder: ${{parent.jobs.train.outputs.model_output}}
+  #   outputs:
+  #     eval_output:
+  #       type: uri_folder
+  #       mode: rw_mount
 
-  deploy:
-    type: command
-    code: .
-    command: >-
-      python deploy.py --model-folder ${{inputs.model_folder}} --eval-folder ${{inputs.eval_folder}}
-    environment: azureml:ml-pipeline-env@latest
-    compute: azureml:greenhat-ai-cluster
-    inputs:
-      model_folder: ${{parent.jobs.train.outputs.model_output}}
-      eval_folder: ${{parent.jobs.eval.outputs.eval_output}}
+  # Model_Deploy:
+  #   type: command
+  #   code: .
+  #   command: >-
+  #     python deploy.py --model-folder ${{inputs.model_folder}} --eval-folder ${{inputs.eval_folder}}
+  #   environment: azureml:ml-pipeline-env@latest
+  #   compute: azureml:greenhat-ai-cluster
+  #   inputs:
+  #     model_folder: ${{parent.jobs.train.outputs.model_output}}
+  #     eval_folder: ${{parent.jobs.eval.outputs.eval_output}}
