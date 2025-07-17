@@ -1,0 +1,45 @@
+$schema: https://azuremlschemas.azureedge.net/latest/pipelineJob.schema.json
+type: pipeline
+description: 학습-평가-재배포 3단계 파이프라인
+
+jobs:
+  train:
+    type: command
+    code: .
+    command: >-
+      python train.py --data-folder ${{inputs.data}} --output-dir ${{outputs.model_output}}
+    environment: azureml:ml-pipeline-env@latest
+    compute: azureml:greenhat-ai-cluster
+    inputs:
+      data:
+        type: uri_folder
+        path: azureml:labeling-data@latest
+    outputs:
+      model_output:
+        type: uri_folder
+        mode: rw_mount
+
+  eval:
+    type: command
+    code: .
+    command: >-
+      python eval.py --model-folder ${{inputs.model_folder}} --output-dir ${{outputs.eval_output}}
+    environment: azureml:ml-pipeline-env@latest
+    compute: azureml:greenhat-ai-cluster
+    inputs:
+      model_folder: ${{parent.jobs.train.outputs.model_output}}
+    outputs:
+      eval_output:
+        type: uri_folder
+        mode: rw_mount
+
+  deploy:
+    type: command
+    code: .
+    command: >-
+      python deploy.py --model-folder ${{inputs.model_folder}} --eval-folder ${{inputs.eval_folder}}
+    environment: azureml:ml-pipeline-env@latest
+    compute: azureml:greenhat-ai-cluster
+    inputs:
+      model_folder: ${{parent.jobs.train.outputs.model_output}}
+      eval_folder: ${{parent.jobs.eval.outputs.eval_output}}

@@ -1,0 +1,9 @@
+name: ml-pipeline-env
+dependencies:
+  - python=3.10
+  - scikit-learn
+  - pandas
+  - pip
+  - pip:
+      - azureml-defaults 
+image: mcr.microsoft.com/azureml/openmpi4.1.0-ubuntu20.04:latest
