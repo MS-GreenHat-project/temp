@@ -52,9 +52,10 @@ def main():
         cat_id = ann['category_id']
         class_id = class_name_to_id[categories[cat_id]]
 
-        # COCO bbox: [x_min, y_min, width, height] (비율로 들어있으면 그대로, 절대좌표면 아래 주석 해제)
+        # COCO bbox: [x_min, y_min, width, height] -> YOLO: [x_center, y_center, width, height] (정규화)
         x, y, w, h = ann['bbox']
-        # x /= img_w; w /= img_w; y /= img_h; h /= img_h  # 절대좌표라면 주석 해제
+        # 절대좌표를 정규화 (0~1 범위로)
+        # x /= img_w; w /= img_w; y /= img_h; h /= img_h
         x_center = x + w / 2
         y_center = y + h / 2
 

@@ -1,0 +1,229 @@
+name: Deploy to Kubernetes
+
+on:
+  workflow_dispatch:
+    inputs:
+      model_version:
+        description: 'Model version to deploy'
+        required: true
+        default: 'latest'
+      image_tag:
+        description: 'Docker image tag'
+        required: true
+        default: 'latest'
+      namespace:
+        description: 'Kubernetes namespace'
+        required: true
+        default: 'greenhat-ai'
+      replicas:
+        description: 'Number of replicas'
+        required: true
+        default: '2'
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/greenhat-ai
+  K8S_NAMESPACE: ${{ github.event.inputs.namespace }}
+  MODEL_VERSION: ${{ github.event.inputs.model_version }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=sha,prefix={{branch}}-
+          type=raw,value=${{ github.event.inputs.image_tag }}
+          
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./ml-pipline/Dockerfile
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        
+    - name: Output image info
+      run: |
+        echo "Built image: ${{ steps.meta.outputs.tags }}"
+        echo "Model version: ${{ env.MODEL_VERSION }}"
+
+  update-k8s-manifests:
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    permissions:
+      contents: write
+      pull-requests: write
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+        
+    - name: Install dependencies
+      run: |
+        pip install pyyaml kubernetes
+        
+    - name: Update Kubernetes manifests
+      run: |
+        # 매니페스트 업데이트 스크립트
+        python scripts/update-k8s-manifests.py \
+          --image-tag ${{ github.event.inputs.image_tag }} \
+          --model-version ${{ env.MODEL_VERSION }} \
+          --namespace ${{ github.event.inputs.namespace }} \
+          --replicas ${{ github.event.inputs.replicas }}
+          
+    - name: Create Pull Request
+      uses: peter-evans/create-pull-request@v5
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        commit-message: "Update K8s manifests for model version ${{ env.MODEL_VERSION }}"
+        title: "Deploy model version ${{ env.MODEL_VERSION }} to ${{ github.event.inputs.environment }}"
+        body: |
+          ## Deployment Summary
+          
+          - **Model Version**: ${{ env.MODEL_VERSION }}
+          - **Image Tag**: ${{ github.event.inputs.image_tag }}
+          - **Namespace**: ${{ github.event.inputs.namespace }}
+          - **Replicas**: ${{ github.event.inputs.replicas }}
+          - **Environment**: ${{ github.event.inputs.environment }}
+          
+          ### Changes
+          - Updated Kubernetes manifests
+          - Updated ArgoCD application
+          
+          ### Next Steps
+          1. Review the changes
+          2. Merge this PR
+          3. ArgoCD will automatically deploy to Kubernetes
+        branch: deploy/${{ env.MODEL_VERSION }}
+        delete-branch: true
+
+  deploy-to-staging:
+    runs-on: ubuntu-latest
+    needs: [build-and-push, update-k8s-manifests]
+    if: github.event.inputs.environment == 'staging'
+    environment: staging
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'latest'
+        
+    - name: Configure kubectl
+      run: |
+        echo "${{ secrets.KUBE_CONFIG_STAGING }}" | base64 -d > kubeconfig
+        export KUBECONFIG=kubeconfig
+        
+    - name: Deploy to staging
+      run: |
+        export KUBECONFIG=kubeconfig
+        kubectl apply -f k8s-manifests/ -n ${{ github.event.inputs.namespace }}
+        kubectl rollout status deployment/greenhat-ai-deployment -n ${{ github.event.inputs.namespace }}
+        
+    - name: Run smoke tests
+      run: |
+        export KUBECONFIG=kubeconfig
+        # 간단한 헬스체크
+        kubectl get pods -n ${{ github.event.inputs.namespace }} -l app=greenhat-ai
+        # API 엔드포인트 테스트 (실제 구현 필요)
+        # curl -f http://greenhat-ai-service.${{ github.event.inputs.namespace }}.svc.cluster.local/health
+
+  deploy-to-production:
+    runs-on: ubuntu-latest
+    needs: [build-and-push, update-k8s-manifests]
+    if: github.event.inputs.environment == 'production'
+    environment: production
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'latest'
+        
+    - name: Configure kubectl
+      run: |
+        echo "${{ secrets.KUBE_CONFIG_PRODUCTION }}" | base64 -d > kubeconfig
+        export KUBECONFIG=kubeconfig
+        
+    - name: Deploy to production
+      run: |
+        export KUBECONFIG=kubeconfig
+        kubectl apply -f k8s-manifests/ -n ${{ github.event.inputs.namespace }}
+        kubectl rollout status deployment/greenhat-ai-deployment -n ${{ github.event.inputs.namespace }}
+        
+    - name: Run production tests
+      run: |
+        export KUBECONFIG=kubeconfig
+        # 프로덕션 환경 테스트
+        kubectl get pods -n ${{ github.event.inputs.namespace }} -l app=greenhat-ai
+        # 부하 테스트 (실제 구현 필요)
+        # k6 run load-tests/production-load-test.js
+
+  notify-deployment:
+    runs-on: ubuntu-latest
+    needs: [deploy-to-staging, deploy-to-production]
+    if: always()
+    
+    steps:
+    - name: Notify deployment status
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ job.status }}
+        channel: '#deployments'
+        text: |
+          Deployment to ${{ github.event.inputs.environment }} ${{ job.status }}
+          - Model: ${{ env.MODEL_VERSION }}
+          - Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.event.inputs.image_tag }}
+          - Namespace: ${{ github.event.inputs.namespace }}
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }} 

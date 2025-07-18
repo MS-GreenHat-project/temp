@@ -16,5 +16,13 @@ dependencies:
       - pandas
       - azureml-defaults
       - tqdm
-      - glob
-image: mcr.microsoft.com/azureml/openmpi4.1.0-ubuntu20.04:latest
+      - scikit-learn
+      - matplotlib
+      - seaborn
+      - numpy
+      - opencv-python-headless
+  - xorg-libxrender
+  - xorg-libxext
+  - xorg-libsm
+  - xorg-libice
+# image: mcr.microsoft.com/azureml/openmpi4.1.0-ubuntu20.04:latest

@@ -1,5 +1,19 @@
-$schema: https://azuremlschemas.azureedge.net/latest/environment.schema.json
-name: ml-pipeline-env
-description: 기본 ML 파이프라인 환경
-image: mcr.microsoft.com/azureml/openmpi4.1.0-ubuntu20.04:latest
-conda_file: environment.yml
+from azure.ai.ml import MLClient
+from azure.identity import DefaultAzureCredential
+from azure.ai.ml.entities import Environment
+
+ml_client = MLClient(
+    DefaultAzureCredential(),
+    subscription_id="YOUR_SUBSCRIPTION_ID",
+    resource_group_name="Green-Hat",
+    workspace_name="greenhat-ai"
+)
+
+env = Environment(
+    name="ml-pipeline-env",
+    description="기본 ML 파이프라인 환경",
+    image="mcr.microsoft.com/azureml/openmpi4.1.0-ubuntu20.04:latest",
+    conda_file="ml-pipline/environment.yml",  # 경로 확인!
+    os_packages={"apt": ["libgl1-mesa-glx", "libglib2.0-0"]}
+)
+ml_client.environments.create_or_update(env)
